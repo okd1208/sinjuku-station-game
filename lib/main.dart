@@ -56,12 +56,13 @@ class GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _controller.repeat();
 
     _obstacleTimer = Timer.periodic(
-        Duration(milliseconds: (obstacleGenerationInterval * 1000).toInt()),
-        (timer) {
-      if (!isGameOver) {
-        _generateObstacle();
-      }
-    });
+      Duration(milliseconds: (obstacleGenerationInterval * 1000).toInt()),
+      (timer) {
+        if (!isGameOver) {
+          _generateObstacle();
+        }
+      },
+    );
   }
 
   @override
@@ -89,8 +90,7 @@ class GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   void _generateObstacle() {
     // 生成する障害物のタイプをランダムに決定
-    int obstacleType =
-        random.nextInt(4); // 0: JK, 1: オタク, 2: おじさん, 3: キャリアウーマン
+    int obstacleType = random.nextInt(4); // 0: JK, 1: オタク, 2: おじさん, 3: キャリアウーマン
 
     Obstacle? obstacle;
 
@@ -112,9 +112,12 @@ class GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       // 障害物が配置可能なレーンを取得
       List<int> availableLanes = requiredLanes.toList();
 
+      double playerY = this.playerY;
+      double laneWidth = MediaQuery.of(context).size.width / numLanes;
+
       // 他の障害物との位置関係をチェック
       for (var obs in obstacles) {
-        if (obs.isInFutureCollisionCourse(obstacle, playerReactionTime)) {
+        if (obs.isInFutureCollisionCourse(obstacle, playerReactionTime, playerY)) {
           // 将来的に衝突の可能性があるレーンを除外
           if (obs is CareerWoman) {
             availableLanes.remove(obs.lane);
@@ -155,8 +158,11 @@ class GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   void _checkCollisions() {
+    double playerY = this.playerY;
+    double laneWidth = MediaQuery.of(context).size.width / numLanes;
+
     for (var obstacle in obstacles) {
-      if (obstacle.collidesWith(playerLane, context)) {
+      if (obstacle.collidesWith(playerLane, this.playerY, laneWidth)) {
         isGameOver = true;
         _controller.stop();
         _showGameOverDialog();
@@ -210,7 +216,7 @@ class GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   // プレイヤーのY座標を計算するゲッター
   double get playerY {
     double screenHeight = MediaQuery.of(context).size.height;
-    return screenHeight - 20 - playerHeight;
+    return screenHeight - (20 + playerHeight) * 2;
   }
 
   @override
@@ -282,13 +288,10 @@ abstract class Obstacle {
     return yPosition > MediaQuery.of(context).size.height;
   }
 
-  bool collidesWith(int playerLane, BuildContext context) {
-    double laneWidth =
-        MediaQuery.of(context).size.width / GameScreenState.numLanes;
-
+  bool collidesWith(int playerLane, double playerY, double laneWidth) {
     Rect playerRect = Rect.fromLTWH(
       playerLane * laneWidth,
-      (context.findAncestorStateOfType<GameScreenState>()!).playerY,
+      playerY,
       laneWidth,
       GameScreenState.playerHeight,
     );
@@ -296,7 +299,7 @@ abstract class Obstacle {
     Rect obstacleRect = Rect.fromLTWH(
       lane * laneWidth,
       yPosition,
-      getWidth(context),
+      getWidth(laneWidth),
       getHeight(),
     );
 
@@ -304,24 +307,25 @@ abstract class Obstacle {
     return playerRect.overlaps(obstacleRect);
   }
 
-  bool isInFutureCollisionCourse(Obstacle obstacle, double reactionTime) {
+  bool isInFutureCollisionCourse(
+    Obstacle obstacle, double reactionTime, double playerY) {
     double thisBottomY = yPosition + getHeight();
     double obstacleBottomY = obstacle.yPosition + obstacle.getHeight();
 
-    // この障害物がプレイヤーに到達するまでの時間
-    double timeToPlayer =
-        ((context.findAncestorStateOfType<GameScreenState>()!).playerY -
-                thisBottomY) /
-            speed;
+    // この障害物がプレイヤーの位置に到達するまでの時間
+    double timeToPlayer = (playerY - thisBottomY) / speed;
 
     // 比較対象の障害物がプレイヤーに到達するまでの時間
-    double obstacleTimeToPlayer =
-        ((context.findAncestorStateOfType<GameScreenState>()!).playerY -
-                obstacleBottomY) /
-            obstacle.speed;
+    double obstacleTimeToPlayer = (playerY - obstacleBottomY) / obstacle.speed;
 
-    // プレイヤーの反応時間を考慮して、将来的に同じレーンにいるかどうかを判断
-    return (timeToPlayer - obstacleTimeToPlayer).abs() < reactionTime &&
+    // プレイヤーの高さ分の時間を計算
+    double playerHeightTime = GameScreenState.playerHeight / speed;
+
+    // プレイヤーの反応時間と高さ分の時間を考慮
+    double totalReactionTime = reactionTime + playerHeightTime;
+
+    // 衝突の可能性を判定
+    return (timeToPlayer - obstacleTimeToPlayer).abs() < totalReactionTime &&
         lane == obstacle.lane;
   }
 
@@ -329,12 +333,8 @@ abstract class Obstacle {
 
   List<int> getRequiredLanes();
 
-  double getWidth(BuildContext context) {
-    return laneWidth(context) * getRequiredLanes().length;
-  }
-
-  double laneWidth(BuildContext context) {
-    return MediaQuery.of(context).size.width / GameScreenState.numLanes;
+  double getWidth(double laneWidth) {
+    return laneWidth * getRequiredLanes().length;
   }
 
   double getHeight() {
@@ -348,7 +348,7 @@ class JK extends Obstacle {
   @override
   Widget build(BuildContext context, double laneWidth) {
     return Container(
-      width: getWidth(context),
+      width: getWidth(laneWidth),
       height: getHeight(),
       color: Colors.pink,
       child: const Center(
@@ -374,7 +374,7 @@ class Otaku extends Obstacle {
   @override
   Widget build(BuildContext context, double laneWidth) {
     return Container(
-      width: getWidth(context),
+      width: getWidth(laneWidth),
       height: getHeight(),
       color: Colors.green,
       child: const Center(
@@ -408,7 +408,7 @@ class Ojisan extends Obstacle {
   @override
   Widget build(BuildContext context, double laneWidth) {
     return Container(
-      width: getWidth(context),
+      width: getWidth(laneWidth),
       height: getHeight(),
       color: Colors.brown,
       child: const Center(
@@ -429,12 +429,11 @@ class CareerWoman extends Obstacle {
   @override
   Widget build(BuildContext context, double laneWidth) {
     return Container(
-      width: getWidth(context),
+      width: getWidth(laneWidth),
       height: getHeight(),
       color: Colors.purple,
       child: const Center(
-        child:
-            Text('キャリアウーマン', style: TextStyle(color: Colors.white, fontSize: 16)),
+        child: Text('キャリアウーマン', style: TextStyle(color: Colors.white, fontSize: 16)),
       ),
     );
   }
