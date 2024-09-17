@@ -42,6 +42,8 @@ class GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   double obstacleGenerationInterval = 1.5; // 障害物の生成間隔（秒）
   double playerReactionTime = 1.2; // プレイヤーが反応できる時間（秒）
 
+  static const double playerHeight = 80;
+
   @override
   void initState() {
     super.initState();
@@ -87,7 +89,8 @@ class GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   void _generateObstacle() {
     // 生成する障害物のタイプをランダムに決定
-    int obstacleType = random.nextInt(4); // 0: JK, 1: オタク, 2: おじさん, 3: キャリアウーマン
+    int obstacleType =
+        random.nextInt(4); // 0: JK, 1: オタク, 2: おじさん, 3: キャリアウーマン
 
     Obstacle? obstacle;
 
@@ -111,7 +114,7 @@ class GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
       // 他の障害物との位置関係をチェック
       for (var obs in obstacles) {
-        if (obs.isInFutureCollisionCourse(obstacle, context, playerReactionTime)) {
+        if (obs.isInFutureCollisionCourse(obstacle, playerReactionTime)) {
           // 将来的に衝突の可能性があるレーンを除外
           if (obs is CareerWoman) {
             availableLanes.remove(obs.lane);
@@ -128,7 +131,9 @@ class GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       for (int lane in availableLanes) {
         bool canPlace = obstacleRequiredLanes.every((requiredLane) {
           int targetLane = lane + requiredLane - obstacleRequiredLanes.first;
-          return availableLanes.contains(targetLane) && targetLane >= 0 && targetLane < numLanes;
+          return availableLanes.contains(targetLane) &&
+              targetLane >= 0 &&
+              targetLane < numLanes;
         });
         if (canPlace) {
           possibleLanes.add(lane);
@@ -202,6 +207,12 @@ class GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     );
   }
 
+  // プレイヤーのY座標を計算するゲッター
+  double get playerY {
+    double screenHeight = MediaQuery.of(context).size.height;
+    return screenHeight - 20 - playerHeight;
+  }
+
   @override
   Widget build(BuildContext context) {
     double laneWidth = MediaQuery.of(context).size.width / numLanes;
@@ -244,9 +255,10 @@ class Player extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 主人公のウィジェット（サイズを調整）
     return Container(
       width: laneWidth,
-      height: 80,
+      height: GameScreenState.playerHeight,
       color: Colors.blue,
       child: const Center(
         child: Text('あなた', style: TextStyle(color: Colors.white, fontSize: 20)),
@@ -271,13 +283,14 @@ abstract class Obstacle {
   }
 
   bool collidesWith(int playerLane, BuildContext context) {
-    double laneWidth = MediaQuery.of(context).size.width / GameScreenState.numLanes;
+    double laneWidth =
+        MediaQuery.of(context).size.width / GameScreenState.numLanes;
 
     Rect playerRect = Rect.fromLTWH(
       playerLane * laneWidth,
-      MediaQuery.of(context).size.height - 100,
+      (context.findAncestorStateOfType<GameScreenState>()!).playerY,
       laneWidth,
-      80,
+      GameScreenState.playerHeight,
     );
 
     Rect obstacleRect = Rect.fromLTWH(
@@ -291,12 +304,25 @@ abstract class Obstacle {
     return playerRect.overlaps(obstacleRect);
   }
 
-  bool isInFutureCollisionCourse(Obstacle obstacle, BuildContext context, double reactionTime) {
-    double timeToPlayer = (MediaQuery.of(context).size.height - 100 - yPosition) / (speed);
-    double obstacleTimeToPlayer = (MediaQuery.of(context).size.height - 100 - obstacle.yPosition) / (obstacle.speed);
+  bool isInFutureCollisionCourse(Obstacle obstacle, double reactionTime) {
+    double thisBottomY = yPosition + getHeight();
+    double obstacleBottomY = obstacle.yPosition + obstacle.getHeight();
+
+    // この障害物がプレイヤーに到達するまでの時間
+    double timeToPlayer =
+        ((context.findAncestorStateOfType<GameScreenState>()!).playerY -
+                thisBottomY) /
+            speed;
+
+    // 比較対象の障害物がプレイヤーに到達するまでの時間
+    double obstacleTimeToPlayer =
+        ((context.findAncestorStateOfType<GameScreenState>()!).playerY -
+                obstacleBottomY) /
+            obstacle.speed;
 
     // プレイヤーの反応時間を考慮して、将来的に同じレーンにいるかどうかを判断
-    return (timeToPlayer - obstacleTimeToPlayer).abs() < reactionTime && lane == obstacle.lane;
+    return (timeToPlayer - obstacleTimeToPlayer).abs() < reactionTime &&
+        lane == obstacle.lane;
   }
 
   Widget build(BuildContext context, double laneWidth);
@@ -322,7 +348,7 @@ class JK extends Obstacle {
   @override
   Widget build(BuildContext context, double laneWidth) {
     return Container(
-      width: laneWidth,
+      width: getWidth(context),
       height: getHeight(),
       color: Colors.pink,
       child: const Center(
@@ -343,20 +369,12 @@ class Otaku extends Obstacle {
   @override
   void update() {
     super.update();
-    // TODO: 前に障害物がいる場合、追い越さないように速度を調整
-    for (var obstacle in GameScreenState().obstacles) {
-      if (obstacle != this && obstacle.lane == lane && obstacle.yPosition > yPosition) {
-        if (yPosition + getHeight() >= obstacle.yPosition) {
-          speed = obstacle.speed;
-        }
-      }
-    }
   }
 
   @override
   Widget build(BuildContext context, double laneWidth) {
     return Container(
-      width: laneWidth,
+      width: getWidth(context),
       height: getHeight(),
       color: Colors.green,
       child: const Center(
@@ -390,7 +408,7 @@ class Ojisan extends Obstacle {
   @override
   Widget build(BuildContext context, double laneWidth) {
     return Container(
-      width: laneWidth,
+      width: getWidth(context),
       height: getHeight(),
       color: Colors.brown,
       child: const Center(
@@ -411,11 +429,12 @@ class CareerWoman extends Obstacle {
   @override
   Widget build(BuildContext context, double laneWidth) {
     return Container(
-      width: laneWidth * 2,
+      width: getWidth(context),
       height: getHeight(),
       color: Colors.purple,
       child: const Center(
-        child: Text('キャリアウーマン', style: TextStyle(color: Colors.white, fontSize: 16)),
+        child:
+            Text('キャリアウーマン', style: TextStyle(color: Colors.white, fontSize: 16)),
       ),
     );
   }
